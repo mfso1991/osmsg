@@ -2386,12 +2386,6 @@ struct receiver
 /*
  *	macro for dynamic allocation of receiver struct
  */
-#define INIT_RECEIVER(name, id)
-{
-	.rec_id 		= 	id,									
-	.sibling_node 	= 	LIST_HEAD_INIT(name.sibling_node),	
-	.head_node 		= 	LIST_HEAD_INIT(name.head_node)	
-}
 
 struct message
 {
@@ -2420,25 +2414,30 @@ asmlinkage long sys_cs1550_send_msg(struct message __user *msg)
 		printk("error transferring message from user space to kernel space");
 		return -2;
 	}
-	msg_node_ptr->sibling_node = LIST_HEAD_INIT(msg_node_ptr->sibling_node);
+   (msg_node_ptr->sibling_node).prev = &(msg_node_ptr->sibling_node);
+   (msg_node_ptr->sibling_node).next = &(msg_node_ptr->sibling_node);
 	
 	//entering critical region
 	down(&(rec_s.remaining_entries));
 	down(&__mutex);
 	
-	struct receiver *struct_ptr = NULL; 
+	struct receiver *struct_ptr; 
 	list_for_each_entry(struct_ptr, &(rec_s.head_node), sibling_node) 
 		if(struct_ptr->rec_id == (msg_node_ptr->msg).user)
 			goto queueing_message; 
 		
 	//if not found --> adding new receiver node that will headed by rec_s.head_node
-	struct_ptr = kmalloc(siezeof(struct receiver), GFP_KERNEL);
+	struct_ptr = kmalloc(sizeof(struct receiver), GFP_KERNEL);
 	if(!struct_ptr)
 	{
 		printk("error allocating memory for receiver");
 		return -3;
 	}
-   *struct_ptr = INIT_RECEIVER(*struct_ptr, (msg_node_ptr->msg).user);	
+	struct_ptr->rec_id = (msg_node_ptr->msg).user;
+   (struct_ptr->sibling_node).prev = &(struct_ptr->sibling_node);
+   (struct_ptr->sibling_node).next = &(struct_ptr->sibling_node);
+   (struct_ptr->head_node).prev = &(struct_ptr->head_node);
+   (struct_ptr->head_node).next = &(struct_ptr->head_node);   					
 	list_add(&(struct_ptr->sibling_node), &(rec_s.head_node));
 	
 	queueing_message:
@@ -2446,26 +2445,26 @@ asmlinkage long sys_cs1550_send_msg(struct message __user *msg)
 	list_add_tail(&(msg_node_ptr->sibling_node), &(struct_ptr->head_node));
 	
 	//leaving critical region
-	up(__mutex);
+	up(&__mutex);
 	up(&(rec_s.available_entries));
+	return 0; //signalling success
 }
 
-#define HAS_NOT_YET_RECEIVED_ANY 	-1
-#define NO_MORE_MESSAGE			  	 0
-#define HAS_MORE_MESSAGE(s)			 1
+#define HAS_NOT_YET_RECEIVED_ANY 	-2
+#define NO_UNREAD_MESSAGE			-1
 
 asmlinkage long sys_cs1550_get_msg(struct message __user *msg)
 {
 	long rt = HAS_NOT_YET_RECEIVED_ANY;
 	
 	down(&__mutex);	
-	struct receiver *struct_ptr = NULL; 
+	struct receiver *struct_ptr; 
 	list_for_each_entry(struct_ptr, &(rec_s.head_node), sibling_node) 
 		if(struct_ptr->rec_id == current->uid) //indicating a receiver entry has been already set up for current user 		
 		{
 			if(list_empty(&(struct_ptr->head_node))) //indicating no unread message 
 			{
-				rt = NO_MORE_MESSAGE;
+				rt = NO_UNREAD_MESSAGE;
 				goto abnormal;
 			}
 			up(&__mutex);
@@ -2476,22 +2475,28 @@ asmlinkage long sys_cs1550_get_msg(struct message __user *msg)
 	return rt;
 	
 	read_msg:
+	
+	//entering critical region
 	down(&(rec_s.available_entries));
-	down(__mutex);
+	down(&__mutex);
+	
 	struct msg_node *oldest_msg =  list_entry((struct_ptr->head_node).next, struct msg_node, sibling_node);
 	if(!oldest_msg)
 	{
 		printk("error reading the oldest message");
-		return -2;
+		return -3;
 	}
 	if(copy_to_user(msg, &(oldest_msg->msg), sizeof(struct message)))
 	{
 		printk("error transferring message back to user space");
-		return -3;
+		return -4;
 	}
 	list_del((struct_ptr->head_node).next);
 	kfree(oldest_msg);
+	
+	//leaving critical region
 	up(&__mutex);
 	up(&(rec_s.remaining_entries));
+	
 	return !list_empty(&(struct_ptr->head_node));
 } 
