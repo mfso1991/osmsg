@@ -2362,27 +2362,136 @@ EXPORT_SYMBOL_GPL(orderly_poweroff);
  *	Added by YOU ZHOU
  */
 
+struct list_of_receivers
+{
+	struct semaphore remaining_entries; 	//at most 100 messages will be contained
+	struct semaphore available_entries;		//initially 0 and represents the messages held
+	struct list_head head_node;				//pointing to a list of receiver(s)
+} 	rec_s = {
+				/*
+				 *	static allocation 
+				 */
+				.remaining_entries 	=	__SEMAPHORE_INITIALIZER(rec_s.remaining_entries, 100),
+				.available_entries	=	__SEMAPHORE_INITIALIZER(rec_s.remaining_entries,   0),
+				.head_node			=	LIST_HEAD_INIT(rec_s.head_node)
+			};
+
+struct receiver
+{
+	uid_t rec_id;					//whom the message is sent to
+	struct list_head sibling_node; 	//pointing to other receiver(s) and headed by rec_s.head_node
+	struct list_head head_node; 	//pointing to a list of msg_node(s)	
+};
+
+/*
+ *	macro for dynamic allocation of receiver struct
+ */
+#define INIT_RECEIVER(name, id)
+{
+	.rec_id 		= 	id,									
+	.sibling_node 	= 	LIST_HEAD_INIT(name.sibling_node),	
+	.head_node 		= 	LIST_HEAD_INIT(name.head_node)	
+}
+
 struct message
 {
-	uid_t user;
+	uid_t user;		//within kernel, it will only hold senders' IDs
 	char msg[140];
 };
+			
+struct msg_node
+{
+	struct message msg;
+	struct list_head sibling_node; //pointing to other msg_node(s) and headed by the head_node of an receiver struct instance
+};
+
+struct semaphore __mutex = __SEMAPHORE_INITIALIZER(__mutex, 1);	//necessary for multiple senders\receivers
 
 asmlinkage long sys_cs1550_send_msg(struct message __user *msg)
 {
-	struct message *msg_sending = kmalloc(sizeof(struct message), GFP_KERNEL);
-	if(!msg_sending)
+	struct msg_node *msg_node_ptr = kmalloc(sizeof(struct msg_node), GFP_KERNEL);
+	if(!msg_node_ptr)
 	{
-		printk("allocating memory for message failed!");
-		return(-1);
+		printk("error allocating memory for msg_node");
+		return -1;
 	}
-	if(!copy_from_user(msg_sending, msg, sizeof(struct message)))
+	if(copy_from_user(&(msg_node_ptr->msg), msg, sizeof(struct message)))
 	{
+		printk("error transferring message from user space to kernel space");
+		return -2;
+	}
+	msg_node_ptr->sibling_node = LIST_HEAD_INIT(msg_node_ptr->sibling_node);
+	
+	//entering critical region
+	down(&(rec_s.remaining_entries));
+	down(&__mutex);
+	
+	struct receiver *struct_ptr = NULL; 
+	list_for_each_entry(struct_ptr, &(rec_s.head_node), sibling_node) 
+		if(struct_ptr->rec_id == (msg_node_ptr->msg).user)
+			goto queueing_message; 
 		
+	//if not found --> adding new receiver node that will headed by rec_s.head_node
+	struct_ptr = kmalloc(siezeof(struct receiver), GFP_KERNEL);
+	if(!struct_ptr)
+	{
+		printk("error allocating memory for receiver");
+		return -3;
 	}
+   *struct_ptr = INIT_RECEIVER(*struct_ptr, (msg_node_ptr->msg).user);	
+	list_add(&(struct_ptr->sibling_node), &(rec_s.head_node));
+	
+	queueing_message:
+   (msg_node_ptr->msg).user = current->uid;
+	list_add_tail(&(msg_node_ptr->sibling_node), &(struct_ptr->head_node));
+	
+	//leaving critical region
+	up(__mutex);
+	up(&(rec_s.available_entries));
 }
- 
+
+#define HAS_NOT_YET_RECEIVED_ANY 	-1
+#define NO_MORE_MESSAGE			  	 0
+#define HAS_MORE_MESSAGE(s)			 1
+
 asmlinkage long sys_cs1550_get_msg(struct message __user *msg)
 {
+	long rt = HAS_NOT_YET_RECEIVED_ANY;
 	
+	down(&__mutex);	
+	struct receiver *struct_ptr = NULL; 
+	list_for_each_entry(struct_ptr, &(rec_s.head_node), sibling_node) 
+		if(struct_ptr->rec_id == current->uid) //indicating a receiver entry has been already set up for current user 		
+		{
+			if(list_empty(&(struct_ptr->head_node))) //indicating no unread message 
+			{
+				rt = NO_MORE_MESSAGE;
+				goto abnormal;
+			}
+			up(&__mutex);
+			goto read_msg;
+		}
+	abnormal:
+	up(&__mutex);
+	return rt;
+	
+	read_msg:
+	down(&(rec_s.available_entries));
+	down(__mutex);
+	struct msg_node *oldest_msg =  list_entry((struct_ptr->head_node).next, struct msg_node, sibling_node);
+	if(!oldest_msg)
+	{
+		printk("error reading the oldest message");
+		return -2;
+	}
+	if(copy_to_user(msg, &(oldest_msg->msg), sizeof(struct message)))
+	{
+		printk("error transferring message back to user space");
+		return -3;
+	}
+	list_del((struct_ptr->head_node).next);
+	kfree(oldest_msg);
+	up(&__mutex);
+	up(&(rec_s.remaining_entries));
+	return !list_empty(&(struct_ptr->head_node));
 } 
