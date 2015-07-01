@@ -2450,33 +2450,27 @@ asmlinkage long sys_cs1550_send_msg(struct message __user *msg)
 	return 0; //signalling success
 }
 
-#define HAS_NOT_YET_RECEIVED_ANY 	-2
-#define NO_UNREAD_MESSAGE			-1
-
 asmlinkage long sys_cs1550_get_msg(struct message __user *msg)
 {
-	long rt = HAS_NOT_YET_RECEIVED_ANY;
-	
-	down(&__mutex);	
+	down(&__mutex);
+	long signal = -1;
 	struct receiver *struct_ptr; 
 	list_for_each_entry(struct_ptr, &(rec_s.head_node), sibling_node) 
 		if(struct_ptr->rec_id == current->uid) //indicating a receiver entry has been already set up for current user 		
 		{
-			if(list_empty(&(struct_ptr->head_node))) //indicating no unread message 
+			if(list_empty(&(struct_ptr->head_node))) //indicating there is no message to be read
 			{
-				rt = NO_UNREAD_MESSAGE;
-				goto abnormal;
+				signal = 2;
+				goto rt;
 			}
 			up(&__mutex);
-			goto read_msg;
+			goto entering_critical_region;
 		}
-	abnormal:
+	rt:
 	up(&__mutex);
-	return rt;
+	return signal;
 	
-	read_msg:
-	
-	//entering critical region
+	entering_critical_region:
 	down(&(rec_s.available_entries));
 	down(&__mutex);
 	
@@ -2484,17 +2478,20 @@ asmlinkage long sys_cs1550_get_msg(struct message __user *msg)
 	if(!oldest_msg)
 	{
 		printk("error reading the oldest message");
-		return -3;
+		up(&__mutex);
+		up(&(rec_s.available_entries));
+		return -2;
 	}
 	if(copy_to_user(msg, &(oldest_msg->msg), sizeof(struct message)))
 	{
 		printk("error transferring message back to user space");
-		return -4;
+		up(&__mutex);
+		up(&(rec_s.available_entries));
+		return -3;
 	}
 	list_del((struct_ptr->head_node).next);
 	kfree(oldest_msg);
 	
-	//leaving critical region
 	up(&__mutex);
 	up(&(rec_s.remaining_entries));
 	

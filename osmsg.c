@@ -107,7 +107,7 @@ int main(int argc, char ** argv)
 	}
 	if(strncmp(argv[1], "-s", 2) == 0)
 	{
-		if(argc != 3)
+		if(argc != 4)
 		{
 			printf("./osmsg -s username message_to_be_sent\n");
 			goto rt;
@@ -132,17 +132,19 @@ int main(int argc, char ** argv)
 		read_msg:
 		switch(signal = GETMSG(msg))
 		{
-			case -2:	
-					printf("never any message\n");
-					goto rt;
 			case -1:
-					printf("no unread message\n");
-					goto rt;
+			printf("never any message\n");
+			break;
+			
+			case  2:
+			printf("no more unread message\n");
+			break;
+			
 			default:
-					printf("%s said: %s \n",  get_uid_str(msg->user), msg->msg);
-					if(signal)
-						goto read_msg;
-					goto rt;
+			printf("%s said: %s \n",  get_uid_str(msg->user), msg->msg);
+			if(signal)
+				goto read_msg;
+			break;
 		}
 	}	
 	rt:
