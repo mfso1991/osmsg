@@ -2365,8 +2365,8 @@ EXPORT_SYMBOL_GPL(orderly_poweroff);
 struct list_of_receivers
 {
 	struct semaphore remaining_entries; 	//at most 100 messages will be contained
-	struct semaphore available_entries;		//initially 0 and represents the messages held
-	struct list_head head_node;				//pointing to a list of receiver(s)
+	struct semaphore available_entries;	//initially 0 and represents the messages held
+	struct list_head head_node;		//pointing to a list of receiver(s)
 } 	rec_s = {
 				/*
 				 *	static allocation 
@@ -2378,7 +2378,7 @@ struct list_of_receivers
 
 struct receiver
 {
-	uid_t rec_id;					//whom the message is sent to
+	uid_t rec_id;			//whom the message is sent to
 	struct list_head sibling_node; 	//pointing to other receiver(s) and headed by rec_s.head_node
 	struct list_head head_node; 	//pointing to a list of msg_node(s)	
 };
@@ -2389,7 +2389,7 @@ struct receiver
 
 struct message
 {
-	uid_t user;		//within kernel, it will only hold senders' IDs
+	uid_t user;	//within kernel, it will only hold senders' IDs
 	char msg[140];
 };
 			
@@ -2434,14 +2434,14 @@ asmlinkage long sys_cs1550_send_msg(struct message __user *msg)
 		return -3;
 	}
 	struct_ptr->rec_id = (msg_node_ptr->msg).user;
-   (struct_ptr->sibling_node).prev = &(struct_ptr->sibling_node);
-   (struct_ptr->sibling_node).next = &(struct_ptr->sibling_node);
-   (struct_ptr->head_node).prev = &(struct_ptr->head_node);
-   (struct_ptr->head_node).next = &(struct_ptr->head_node);   					
+   	(struct_ptr->sibling_node).prev = &(struct_ptr->sibling_node);
+   	(struct_ptr->sibling_node).next = &(struct_ptr->sibling_node);
+   	(struct_ptr->head_node).prev = &(struct_ptr->head_node);
+   	(struct_ptr->head_node).next = &(struct_ptr->head_node);   					
 	list_add(&(struct_ptr->sibling_node), &(rec_s.head_node));
 	
 	queueing_message:
-   (msg_node_ptr->msg).user = current->uid;
+   	(msg_node_ptr->msg).user = current->uid;
 	list_add_tail(&(msg_node_ptr->sibling_node), &(struct_ptr->head_node));
 	
 	//leaving critical region
