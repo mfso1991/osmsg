@@ -2368,13 +2368,13 @@ struct list_of_receivers
 	struct semaphore available_entries;	//initially 0 and represents the messages held
 	struct list_head head_node;		//pointing to a list of receiver(s)
 } 	rec_s = {
-				/*
-				 *	static allocation 
-				 */
-				.remaining_entries 	=	__SEMAPHORE_INITIALIZER(rec_s.remaining_entries, 100),
-				.available_entries	=	__SEMAPHORE_INITIALIZER(rec_s.remaining_entries,   0),
-				.head_node			=	LIST_HEAD_INIT(rec_s.head_node)
-			};
+			/*
+			 *	static allocation 
+			 */
+			.remaining_entries 	=	__SEMAPHORE_INITIALIZER(rec_s.remaining_entries, 100),
+			.available_entries	=	__SEMAPHORE_INITIALIZER(rec_s.remaining_entries,   0),
+			.head_node			=	LIST_HEAD_INIT(rec_s.head_node)
+		};
 
 struct receiver
 {
@@ -2396,10 +2396,10 @@ struct message
 struct msg_node
 {
 	struct message msg;
-	struct list_head sibling_node; //pointing to other msg_node(s) and headed by the head_node of an receiver struct instance
+	struct list_head sibling_node;	//pointing to other msg_node(s) and headed by the head_node of an receiver struct instance
 };
 
-struct semaphore __mutex = __SEMAPHORE_INITIALIZER(__mutex, 1);	//necessary for multiple senders\receivers
+struct semaphore __mutex = __SEMAPHORE_INITIALIZER(__mutex, 1);		//necessary for multiple senders\receivers
 
 asmlinkage long sys_cs1550_send_msg(struct message __user *msg)
 {
@@ -2414,8 +2414,8 @@ asmlinkage long sys_cs1550_send_msg(struct message __user *msg)
 		printk("error transferring message from user space to kernel space");
 		return -2;
 	}
-   (msg_node_ptr->sibling_node).prev = &(msg_node_ptr->sibling_node);
-   (msg_node_ptr->sibling_node).next = &(msg_node_ptr->sibling_node);
+   	(msg_node_ptr->sibling_node).prev = &(msg_node_ptr->sibling_node);
+   	(msg_node_ptr->sibling_node).next = &(msg_node_ptr->sibling_node);
 	
 	//entering critical region
 	down(&(rec_s.remaining_entries));
@@ -2456,9 +2456,9 @@ asmlinkage long sys_cs1550_get_msg(struct message __user *msg)
 	long signal = -1;
 	struct receiver *struct_ptr; 
 	list_for_each_entry(struct_ptr, &(rec_s.head_node), sibling_node) 
-		if(struct_ptr->rec_id == current->uid) //indicating a receiver entry has been already set up for current user 		
+		if(struct_ptr->rec_id == current->uid) 		//indicating a receiver entry has been already set up for current user 		
 		{
-			if(list_empty(&(struct_ptr->head_node))) //indicating there is no message to be read
+			if(list_empty(&(struct_ptr->head_node))) 	//indicating there is no message to be read
 			{
 				signal = 2;
 				goto rt;
